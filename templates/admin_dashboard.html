@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f8f8;
+            font-family: Arial, sans-serif;
+        }
+        .header {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .header button {
+            padding: 10px 20px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .header button:hover {
+            background-color: #0056b3;
+        }
+        .dashboard-section {
+            width: 100%;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .dashboard-section h2 {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 24px;
+            color: #333;
+        }
+        .dashboard {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+        .item-container {
+            width: calc(100% / 4 - 20px);
+            padding: 20px;
+            background: #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .item-container button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            color: white;
+        }
+        .on {
+            background-color: #28a745;
+        }
+        .off {
+            background-color: #dc3545;
+        }
+        @media (max-width: 1024px) {
+            .item-container {
+                width: calc(100% / 3 - 20px);
+            }
+        }
+        @media (max-width: 768px) {
+            .item-container {
+                width: calc(100% / 2 - 20px);
+            }
+        }
+        @media (max-width: 480px) {
+            .item-container {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-section">
+        <div class="header">
+            <a href="/admin">
+                <button>Return to Home</button>
+            </a>
+        </div>
+        <h2>Rounds</h2>
+        <div class="dashboard">
+            {% for round in rounds %}
+                <div class="item-container">
+                    <p>Round {{ loop.index }}</p>
+                    <button class="{{ 'on' if round else 'off' }}" onclick="toggleState('round', '{{ loop.index0 }}')">
+                        {{ 'ON' if round else 'OFF' }}
+                    </button>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="dashboard-section">
+        <h2>Voting</h2>
+        <div class="dashboard">
+            {% for vote in voting %}
+                <div class="item-container">
+                    <p>Voting {{ loop.index }}</p>
+                    <button class="{{ 'on' if vote else 'off' }}" onclick="toggleState('vote', '{{ loop.index0 }}')">
+                        {{ 'ON' if vote else 'OFF' }}
+                    </button>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+    <script>
+        function toggleState(type, index) {
+            fetch(`/toggle_state/${type}/${index}`, {
+                method: 'POST',
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('Failed to toggle state');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
