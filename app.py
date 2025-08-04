@@ -1,25 +1,32 @@
-from flask import Flask, render_template, request,redirect,session, jsonify
-import sqlite3
-from bcrypt import gensalt,hashpw,checkpw
+from flask import Flask, render_template, request, redirect, session, jsonify
+from flask_socketio import SocketIO
 from cas import CASClient
 from urllib.parse import quote_plus
 from cryptography.fernet import Fernet
 import os
-from functools import cmp_to_key
 import json
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
+socketio = SocketIO(app)
 app.secret_key = os.urandom(24)
 
-CAS_SERVER_URL="https://login.iiit.ac.in/cas/"
-SERVICE_URL="http://10.2.135.148:5000/Get_Auth"
-REDIRECT_URL="http://10.2.135.148:5000/Get_Auth"
+CAS_SERVER_URL = "https://login.iiit.ac.in/cas/"
+SERVER_URL = os.getenv("SERVER_URL")
+if not SERVER_URL:
+    raise ValueError("SERVER_URL environment variable is not set.")
+SERVICE_URL = SERVER_URL + "Get_Auth"
+REDIRECT_URL = SERVER_URL + "Get_Auth"
 
+if not os.path.exists('./uploads'):
+    os.mkdir('./uploads')
 UPLOAD_FOLDER_1 = './static/round1/'
 UPLOAD_FOLDER_2 = './static/round2/'
 UPLOAD_FOLDER_3 = './static/round3/'
 UPLOAD_FOLDER_4 = './static/round4/'
-
 app.config['UPLOAD_FOLDER_1'] = UPLOAD_FOLDER_1
 app.config['UPLOAD_FOLDER_2'] = UPLOAD_FOLDER_2
 app.config['UPLOAD_FOLDER_3'] = UPLOAD_FOLDER_3
@@ -95,7 +102,33 @@ if os.path.exists('voting.json'):
 else:
     voting = [0,0,0,0]
 
-admins = ['adithya.kishor', 'krish.pandya', 'gautam.bhetanabhotla', 'vigneshvembar.m', 'saloni.goyal', 'virat.garg', 'manas.agrawal']
+admins = [
+    'adithya.kishor',
+    'krish.pandya',
+    'gautam.bhetanabhotla',
+    'vigneshvembar.m',
+    'saloni.goyal',
+    'virat.garg',
+    'manas.agrawal',
+    'aishani.sood',
+    'tatva.agarwal',
+    'neharika.rajesh',
+    'sanjana.punna',
+    'nikhita.ravi',
+    'kandagatla.akshith',
+    'samarth.jain',
+]
+
+def current_user_attributes():
+    if 'token' in session:
+        token = session['token']
+        with open('key.key', 'rb') as file:
+            key = file.read()
+        fernet = Fernet(key)
+        attributes_json = fernet.decrypt(token).decode()
+        attributes = json.loads(attributes_json)
+        return attributes
+    return None
 
 @app.route('/login')
 def LogIn():
@@ -110,8 +143,12 @@ def Get_Auth():
     else:
         ticket = request.args.get('ticket')
         if ticket:
-            user, attributes, pgtiou = cas_client.verify_ticket(ticket)
+            user, attributes, _ = cas_client.verify_ticket(ticket)
+            if not attributes:
+                return "Invalid ticket"
             if user:
+                for k, v in attributes.items():
+                    print(k, ": ", v)
                 roll = attributes['RollNo']
                 email = attributes['E-Mail']
                 first_name = attributes['FirstName']
@@ -129,115 +166,52 @@ def Get_Auth():
 
 @app.route('/', methods=['GET'])
 def index():
-    if 'token' in session:
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        print(rounds)
-        print(voting)
-        return render_template('index.html', user=attributes['FirstName'], rounds=rounds, voting=voting)
+    attr = current_user_attributes()
+    if attr:
+        return render_template('index.html', user=attr['FirstName'], rounds=rounds, voting=voting)
     else:
         return redirect('/login')
 
-@app.route('/round1', methods=['POST', 'GET'])
-def round1():
-    if rounds[0] == 0:
+def round_handler(round_number):
+    if rounds[round_number-1] == 0:
         return redirect('/')
     if request.method == 'POST':
         if 'file1' not in request.files:
-            return 'there is no file1 in form!'
+            return 'No file attached!'
         file1 = request.files['file1']
+        if not file1.filename:
+            return 'Please enter a file name!'
         token = session['token']
         with open('key.key', 'rb') as file:
             key = file.read()
         fernet = Fernet(key)
         attribute_json = fernet.decrypt(token).decode()
         attributes = json.loads(attribute_json)
-        uid = attributes['uid']+'.' + file1.filename.split('.')[-1]
-        path = os.path.join(app.config['UPLOAD_FOLDER_1'], uid)
-        file1.save(path)
-        if path not in r1:
-            r1.append(path)
-        #save r1 in file
-        with open('r1.json', 'w') as file:
-            json.dump(r1, file)
-        return render_template('round1.html')
-    return render_template('round1.html')
-
-@app.route('/round2', methods=['POST', 'GET'])
-def round2():
-    if rounds[1] == 0:
-        return redirect('/')
-    if request.method == 'POST':
-        if 'file1' not in request.files:
-            return 'there is no file1 in form!'
-        file1 = request.files['file1']
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attribute_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attribute_json)
-        uid = attributes['uid']+'.' + file1.filename.split('.')[-1]
-        path = os.path.join(app.config['UPLOAD_FOLDER_2'], uid)
+        fname = attributes['uid']+'.' + file1.filename.split('.')[-1] # Example filename: gautam.bhetanabhotla.png
+        path = os.path.join(app.config[f'UPLOAD_FOLDER_{round_number}'], fname)
         file1.save(path)
         if path not in r2:
             r2.append(path)
         with open('r2.json', 'w') as file:
             json.dump(r2, file)
-        return render_template('round2.html')
-    return render_template('round2.html')
+        return render_template(f'round{round_number}.html')
+    return render_template(f'round{round_number}.html')
+
+@app.route('/round1', methods=['POST', 'GET'])
+def round1():
+    return round_handler(1)
+
+@app.route('/round2', methods=['POST', 'GET'])
+def round2():
+    return round_handler(2)
 
 @app.route('/round3', methods=['POST', 'GET'])
 def round3():
-    if rounds[2] == 0:
-        return redirect('/')
-    if request.method == 'POST':
-        if 'file1' not in request.files:
-            return 'there is no file1 in form!'
-        file1 = request.files['file1']
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attribute_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attribute_json)
-        uid = attributes['uid']+'.' + file1.filename.split('.')[-1]
-        path = os.path.join(app.config['UPLOAD_FOLDER_3'], uid)
-        file1.save(path)
-        if path not in r3:
-            r3.append(path)
-        with open('r3.json', 'w') as file:
-            json.dump(r3, file)
-        return render_template('round3.html')
-    return render_template('round3.html')
+    return round_handler(3)
 
 @app.route('/round4', methods=['POST', 'GET'])
 def round4():
-    if rounds[3] == 0:
-        return redirect('/')
-    if request.method == 'POST':
-        if 'file1' not in request.files:
-            return 'there is no file1 in form!'
-        file1 = request.files['file1']
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attribute_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attribute_json)
-        uid = attributes['uid']+'.' + file1.filename.split('.')[-1]
-        path = os.path.join(app.config['UPLOAD_FOLDER_4'], uid)
-        file1.save(path)
-        if path not in r4:
-            r4.append(path)
-        with open('r4.json', 'w') as file:
-            json.dump(r4, file)
-        return render_template('round4.html')
-    return render_template('round4.html')
+    return round_handler(4)
 
 @app.route('/admin')
 def admin():
@@ -686,8 +660,8 @@ def result1():
 
     if uid in admins:
         max_votes = max(votes_r1.values(), default=1) 
-        return render_template('result_round1.html', votes=votes_r1, max_votes=max_votes)
-    
+        return render_template('round_result.html', votes=votes_r1, max_votes=max_votes)
+
     return redirect('/')
 
 @app.route('/result2')
@@ -710,8 +684,8 @@ def result2():
 
     if uid in admins:
         max_votes = max(votes_r2.values(), default=1) 
-        return render_template('result_round2.html', votes=votes_r2, max_votes=max_votes)
-    
+        return render_template('round_result.html', votes=votes_r2, max_votes=max_votes)
+
     return redirect('/')
 
 @app.route('/result3')
@@ -734,7 +708,7 @@ def result3():
 
     if uid in admins:
         max_votes = max(votes_r3.values(), default=1) 
-        return render_template('result_round3.html', votes=votes_r3, max_votes=max_votes)
+        return render_template('round_result.html', votes=votes_r3, max_votes=max_votes)
     
     return redirect('/')
 
@@ -758,7 +732,7 @@ def result4():
 
     if uid in admins:
         max_votes = max(votes_r4.values(), default=1) 
-        return render_template('result_round4.html', votes=votes_r4, max_votes=max_votes)
+        return render_template('round_result.html', votes=votes_r4, max_votes=max_votes)
     
     return redirect('/')
 
@@ -766,4 +740,5 @@ if __name__ == '__main__':
     key = Fernet.generate_key()
     with open('key.key', 'wb') as file:
         file.write(key)
-    app.run(debug=True, host='0.0.0.0')
+    # app.run(debug=True, host='0.0.0.0')
+    socketio.run(app, '0.0.0.0', debug=True)
