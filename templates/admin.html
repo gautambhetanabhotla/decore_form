@@ -6,7 +6,7 @@
 
     <meta charset="UTF-8">
 
-    <title>CodePen - Animated Login Form using Html &amp; CSS Only</title>
+    <title>Admin </title>
 
     <link rel="stylesheet" href="../static/login.css">
 
@@ -49,79 +49,37 @@
         <span></span> <span></span> <span></span> <span></span>
 
         <div class="signin">
-
             <div class="content">
-
                 <h2>Hello {{user}}!!</h2>
-
+                {% for round in rounds[1::] %}
                 <div class="form">
                     <div class="inputBox">
-
-                        <a href="/adm_round1"><input type="submit" value="Round 1"></a>
+                        <a href="/admin/round/{{ round.number }}"><input type="submit" value="Round {{ round.number }}"></input></a>
+                    <!-- </div> -->
+                <!-- </div> -->
+                {% endfor %}
+                {% for round in rounds[1::] %}
+                </div>
+                </div>
+                {% endfor %}
+                {% for round in rounds[1::] %}
+                <div class="form">
+                    <div class="inputBox">
+                        <a href="/admin/result/{{ round.number }}"><input type="submit" value="Result {{ round.number }}"></input></a>
+                    <!-- </div>
+                </div> -->
+                {% endfor %}
+                {% for round in rounds[1::] %}
+                </div>
+                </div>
+                {% endfor %}
+                <div class="form">
+                    <div class="inputBox">
+                        <a href="/admin_dashboard"><input type="submit" value="Dashboard"></a>
                     </div>
-
-                    <div class="form">
-                        <div class="inputBox">
-
-                            <a href="/adm_round2"><input type="submit" value="Round 2"></a>
-                        </div>
-
-
-                        <div class="form">
-                            <div class="inputBox">
-
-                                <a href="/adm_round3"><input type="submit" value="Round 3"></a>
-                            </div>
-
-                            <div class="form">
-                                <div class="inputBox">
-
-                                    <a href="/adm_round4"><input type="submit" value="Round 4"></a>
-                                </div>
-                            </div>
-
-                            <div class="form">
-                                <div class="inputBox">
-
-                                    <a href="/result1"><input type="submit" value="Result 1"></a>
-                                </div>
-                            </div>
-
-                            <div class="form">
-                                <div class="inputBox">
-
-                                    <a href="/result2"><input type="submit" value="Result 2"></a>
-                                </div>
-                            </div>
-
-                            <div class="form">
-                                <div class="inputBox">
-
-                                    <a href="/result3"><input type="submit" value="Result 3"></a>
-                                </div>
-                            </div>
-
-                            <div class="form">
-                                <div class="inputBox">
-
-                                    <a href="/result4"><input type="submit" value="Result 4"></a>
-                                </div>
-                            </div>
-
-                            <br/>
-                            <br/>
-                            <div class="form">
-                                <div class="inputBox">
-
-                                    <a href="/admin_dashboard"><input type="submit" value="Dashboard"></a>
-                                </div>
-                            </div>
-                        </div>
-
-                    </div>
-
+                </div>
+            </div>
+        </div>
     </section> <!-- partial -->
-
 </body>
-
 </html>

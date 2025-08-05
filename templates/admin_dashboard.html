@@ -102,11 +102,11 @@
         </div>
         <h2>Rounds</h2>
         <div class="dashboard">
-            {% for round in rounds %}
+            {% for round in rounds[1:] %}
                 <div class="item-container">
-                    <p>Round {{ loop.index }}</p>
-                    <button class="{{ 'on' if round else 'off' }}" onclick="toggleState('round', '{{ loop.index0 }}')">
-                        {{ 'ON' if round else 'OFF' }}
+                    <p>Round {{ round.number }}</p>
+                    <button class="{{ 'on' if round.active else 'off' }}" onclick="toggleState('round', '{{ round.number }}')">
+                        {{ 'ON' if round.active else 'OFF' }}   
                     </button>
                 </div>
             {% endfor %}
@@ -115,11 +115,11 @@
     <div class="dashboard-section">
         <h2>Voting</h2>
         <div class="dashboard">
-            {% for vote in voting %}
+            {% for round in rounds[1:] %}
                 <div class="item-container">
-                    <p>Voting {{ loop.index }}</p>
-                    <button class="{{ 'on' if vote else 'off' }}" onclick="toggleState('vote', '{{ loop.index0 }}')">
-                        {{ 'ON' if vote else 'OFF' }}
+                    <p>Voting {{ round.number }}</p>
+                    <button class="{{ 'on' if round.voting_open else 'off' }}" onclick="toggleState('vote', '{{ round.number }}')">
+                        {{ 'ON' if round.voting_open else 'OFF' }}
                     </button>
                 </div>
             {% endfor %}

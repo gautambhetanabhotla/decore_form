@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Image Gallery</title>
@@ -88,39 +88,46 @@
             }
         }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="header">
-        <a href="/admin">
-            <button>Return to Home</button>
-        </a>
+      <a href="/admin">
+        <button>Return to Home</button>
+      </a>
     </div>
     <div class="gallery-section">
-        <h2>Selected Images</h2>
-        <div class="gallery">
-            {% for file in selected_files %}
-                <div class="image-container">
-                    <a href="{{'/unselect_r4/' + file}}">
-                        <img src="{{ file }}" alt="{{ file }}">
-                    </a>
-                </div>
-            {% endfor %}
-        </div>
+      <h2>Selected Images</h2>
+      <div class="gallery">
+        {% for file in selected_files %}
+          <div class="image-container">
+            <a href="/unselect/{{round_number}}?path={{file}}">
+              <img src="{{ url_for('static', filename=file|remove_first_dir) }}" alt="{{ file }}">
+            </a>
+          </div>
+        {% endfor %}
+      </div>
     </div>
-
     <div class="gallery-section">
-        <h2>Other Images</h2>
-        <div class="gallery">
-            {% for file in files %}
-                {% if file not in selected_files %}
-                    <div class="image-container">
-                        <a href="{{'/select_r4/' + file}}">
-                            <img src="{{file}}" alt="{{ file }}">
-                        </a>
-                    </div>
-                {% endif %}
-            {% endfor %}
-        </div>
+      <h2>Other Images</h2>
+      <div class="gallery">
+        {% for file in files %}
+          {% if file not in selected_files %}
+            <div class="image-container">
+              <a href="/select/{{round_number}}?path={{file}}">
+                <img src="{{ url_for('static', filename=file|remove_first_dir) }}" alt="{{ file }}">
+              </a>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
     </div>
-</body>
+    <!-- <script>
+      document.querySelectorAll('.gallery img').forEach(img => {
+        img.addEventListener('mouseover', () => {
+          const src = img.getAttribute('src');
+          console.log(src);
+        });
+      });
+    </script> -->
+  </body>
 </html>

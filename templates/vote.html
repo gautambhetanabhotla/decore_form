@@ -111,7 +111,7 @@
 
     <div class="form-container">
         <h2>Poll for Selected Image</h2>
-        <form id="pollForm" action="/vote3" method="POST">
+        <form id="pollForm" action="/vote/{{ round_number }}" method="POST">
             <input type="hidden" id="selectedImage" name="selectedImage" value="">
             <input type="submit" value="Submit Poll">
         </form>

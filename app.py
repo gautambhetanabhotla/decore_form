@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, session, jsonify
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, emit
 from cas import CASClient
 from urllib.parse import quote_plus
 from cryptography.fernet import Fernet
@@ -21,86 +21,48 @@ if not SERVER_URL:
 SERVICE_URL = SERVER_URL + "Get_Auth"
 REDIRECT_URL = SERVER_URL + "Get_Auth"
 
-if not os.path.exists('./uploads'):
-    os.mkdir('./uploads')
-UPLOAD_FOLDER_1 = './static/round1/'
-UPLOAD_FOLDER_2 = './static/round2/'
-UPLOAD_FOLDER_3 = './static/round3/'
-UPLOAD_FOLDER_4 = './static/round4/'
-app.config['UPLOAD_FOLDER_1'] = UPLOAD_FOLDER_1
-app.config['UPLOAD_FOLDER_2'] = UPLOAD_FOLDER_2
-app.config['UPLOAD_FOLDER_3'] = UPLOAD_FOLDER_3
-app.config['UPLOAD_FOLDER_4'] = UPLOAD_FOLDER_4
-
-
-if os.path.exists('r1.json'):
-    with open('r1.json', 'r') as file:
-        r1 = json.load(file)
-else:
-    r1 = []
-
-if os.path.exists('r2.json'):
-    with open('r2.json', 'r') as file:
-        r2 = json.load(file)
-else:
-    r2 = []
-
-if os.path.exists('r3.json'):
-    with open('r3.json', 'r') as file:
-        r3 = json.load(file)
-else:
-    r3 = []
-
-if os.path.exists('r4.json'):
-    with open('r4.json', 'r') as file:
-        r4 = json.load(file)
-else:
-    r4 = []
-
-if os.path.exists('selected_r1.json'):
-    with open('selected_r1.json', 'r') as file:
-        selected_r1 = json.load(file)
-else:
-    selected_r1 = []
-
-if os.path.exists('selected_r2.json'):
-    with open('selected_r2.json', 'r') as file:
-        selected_r2 = json.load(file)
-else:
-    selected_r2 = []
-
-if os.path.exists('selected_r3.json'):
-    with open('selected_r3.json', 'r') as file:
-        selected_r3 = json.load(file)
-else:
-    selected_r3 = []
-
-if os.path.exists('selected_r4.json'):
-    with open('selected_r4.json', 'r') as file:
-        selected_r4 = json.load(file)
-else:
-    selected_r4 = []
-
-
 cas_client = CASClient(
     version=3,
     service_url=f"{SERVICE_URL}?next={quote_plus(REDIRECT_URL)}",
     server_url=CAS_SERVER_URL,
 )
 
-#read rounds from file
-if os.path.exists('rounds.json'):
-    with open('rounds.json', 'r') as file:
-        rounds = json.load(file)
-else:
-    rounds = [0,0,0,0]
+class Round:
+    def __init__(self, round_num):
+        self.number = round_num
+        self.upload_folder = f'./static/round{round_num}/'
+        self.details_filepath = f'./round{self.number}.json'
+        os.makedirs(self.upload_folder, exist_ok=True)
+        self.voting_open = False
+        self.active = False # Can participants submit to this round?
+        self.selected_filepaths = []
+        # self.unselected_filepaths = []
+        self.votes = {} # A map from voter's uid to voted filepath
+        try:
+            with open(self.details_filepath, 'r') as f:
+                details = json.loads(f.read())
+                self.votes = details['votes']
+                self.selected_filepaths = details['selected_filepaths']
+                # self.unselected_filepaths = details['unselected_filepaths']
+                self.active = details['active']
+                self.voting_open = details['voting_open']
+        except:
+            pass
+    
+    def save(self):
+        with open(self.details_filepath, 'w') as f:
+            json.dump({
+                "votes": self.votes,
+                "selected_filepaths": self.selected_filepaths,
+                # "unselected_filepaths": self.unselected_filepaths,
+                "active": self.active,
+                "voting_open": self.voting_open,
+            }, f)
+    
+    def __repr__(self):
+        return f"Round {self.number} - Active: {self.active}, Voting Open: {self.voting_open}, Selected Files: {len(self.selected_filepaths)}"
 
-#read voting from file
-if os.path.exists('voting.json'):
-    with open('voting.json', 'r') as file:
-        voting = json.load(file)
-else:
-    voting = [0,0,0,0]
+roundsList = [Round(n) for n in range(7)]
 
 admins = [
     'adithya.kishor',
@@ -117,6 +79,7 @@ admins = [
     'nikhita.ravi',
     'kandagatla.akshith',
     'samarth.jain',
+    'maithily.bhala',
 ]
 
 def current_user_attributes():
@@ -130,10 +93,18 @@ def current_user_attributes():
         return attributes
     return None
 
+@app.template_filter('remove_first_dir')
+def remove_first_dir(path):
+    # Remove ./static/ prefix to work with Flask's url_for('static', ...)
+    if path.startswith('./static/'):
+        return path[9:]  # Remove './static/'
+    elif path.startswith('static/'):
+        return path[7:]  # Remove 'static/'
+    return path
+
 @app.route('/login')
 def LogIn():
     return render_template('LogIn.html')
-
 
 @app.route('/Get_Auth', methods=['POST', 'GET'])
 def Get_Auth():
@@ -168,247 +139,86 @@ def Get_Auth():
 def index():
     attr = current_user_attributes()
     if attr:
-        return render_template('index.html', user=attr['FirstName'], rounds=rounds, voting=voting)
+        return render_template('index.html', user=attr['FirstName'], rounds=roundsList)
     else:
         return redirect('/login')
 
+@app.route('/round/<int:round_number>', methods=['POST', 'GET'])
 def round_handler(round_number):
-    if rounds[round_number-1] == 0:
-        return redirect('/')
+    r: Round = roundsList[round_number]
+    if not r.active: return redirect('/')
     if request.method == 'POST':
+        # Handle submission for this round
         if 'file1' not in request.files:
             return 'No file attached!'
         file1 = request.files['file1']
         if not file1.filename:
             return 'Please enter a file name!'
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attribute_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attribute_json)
+        attributes = current_user_attributes()
+        if not attributes: return redirect('/login')
         fname = attributes['uid']+'.' + file1.filename.split('.')[-1] # Example filename: gautam.bhetanabhotla.png
-        path = os.path.join(app.config[f'UPLOAD_FOLDER_{round_number}'], fname)
+        # path = os.path.join(app.config[f'UPLOAD_FOLDER_{round_number}'], fname)
+        path = os.path.join(r.upload_folder, fname)
         file1.save(path)
-        if path not in r2:
-            r2.append(path)
-        with open('r2.json', 'w') as file:
-            json.dump(r2, file)
-        return render_template(f'round{round_number}.html')
-    return render_template(f'round{round_number}.html')
-
-@app.route('/round1', methods=['POST', 'GET'])
-def round1():
-    return round_handler(1)
-
-@app.route('/round2', methods=['POST', 'GET'])
-def round2():
-    return round_handler(2)
-
-@app.route('/round3', methods=['POST', 'GET'])
-def round3():
-    return round_handler(3)
-
-@app.route('/round4', methods=['POST', 'GET'])
-def round4():
-    return round_handler(4)
+        r.save()
+        return render_template(f'round_submission.html', number=r.number)
+    # Otherwise get round submission form
+    return render_template(f'round_submission.html', number=r.number)
 
 @app.route('/admin')
 def admin():
-    if 'token' in session:
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        if attributes['uid'] in admins:
-            return render_template('admin.html')
-        else:
-            return redirect('/')
-    else:
-        return redirect('/login')
-    
-@app.route('/adm_round1')
-def adm_round1():
-    if 'token' in session:
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        if attributes['uid'] in admins:
-            return render_template('adm_round1.html', files=r1, selected_files=selected_r1)
-        else:
-            return redirect('/')
-    else:
-        return redirect('/login')
-    
-@app.route('/adm_round2')
-def adm_round2():
-    if 'token' in session:
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        if attributes['uid'] in admins:
-            return render_template('adm_round2.html', files=r2, selected_files=selected_r2)
+    attr = current_user_attributes()
+    if attr:
+        if attr['uid'] in admins:
+            print(roundsList)
+            return render_template('admin.html', rounds=roundsList, user=attr['FirstName'])
         else:
             return redirect('/')
     else:
         return redirect('/login')
 
-@app.route('/adm_round3')
-def adm_round3():
-    if 'token' in session:
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        if attributes['uid'] in admins:
-            return render_template('adm_round3.html', files=r3, selected_files=selected_r3)
-        else:
-            return redirect('/')
+@app.route('/admin/round/<int:round_num>')
+def adm_round(round_num):
+    attr = current_user_attributes()
+    if not attr: return redirect('/login')
+    r: Round = roundsList[round_num]
+    if attr['uid'] in admins:
+        return render_template(
+            f'round_selection.html',
+            files=[os.path.join(r.upload_folder, fname) for fname in os.listdir(r.upload_folder)],
+            selected_files=r.selected_filepaths,
+            user=attr['FirstName'],
+            round_number=r.number,
+        )
     else:
-        return redirect('/login')
+        return redirect('/')
 
-@app.route('/adm_round4')
-def adm_round4():
-    if 'token' in session:
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        if attributes['uid'] in admins:
-            return render_template('adm_round4.html', files=r4, selected_files=selected_r4)
-        else:
-            return redirect('/')
-    else:
-        return redirect('/login')
-    
-@app.route('/select_r1/static/round1/<value>')
-def select_r1(value):
-    print(value)
-    path = './static/round1/' + value
-    if path in r1:
-        r1.remove(path)
-        selected_r1.append(path)
-    with open('r1.json', 'w') as file:
-        json.dump(r1, file)
-    with open('selected_r1.json', 'w') as file:
-        json.dump(selected_r1, file)
-    return redirect('/adm_round1')
+@app.route('/select/<int:round_number>')
+def select_submission(round_number):
+    path = request.args.get('path')
+    if not path: return redirect('/admin')
+    r: Round = roundsList[round_number]
+    if path not in r.selected_filepaths:
+        r.selected_filepaths.append(path)
+        r.save()
+    return redirect(f'/admin/round/{round_number}')
 
-@app.route('/unselect_r1/static/round1/<value>')
-def unselect_r1(value):
-    print(value)
-    path = './static/round1/' + value
-    if path in selected_r1:
-        selected_r1.remove(path)
-        r1.append(path)
-    print(selected_r1)
-    with open('r1.json', 'w') as file:
-        json.dump(r1, file)
-    with open('selected_r1.json', 'w') as file:
-        json.dump(selected_r1, file)
-    return redirect('/adm_round1')
-
-@app.route('/select_r2/static/round2/<value>')
-def select_r2(value):
-    print(value)
-    path = './static/round2/' + value
-    if path in r2:
-        r2.remove(path)
-        selected_r2.append(path)
-    with open('r2.json', 'w') as file:
-        json.dump(r2, file)
-    with open('selected_r2.json', 'w') as file:
-        json.dump(selected_r2, file)
-    return redirect('/adm_round2')
-
-@app.route('/unselect_r2/static/round2/<value>')
-def unselect_r2(value):
-    print(value)
-    path = './static/round2/' + value
-    if path in selected_r2:
-        selected_r2.remove(path)
-        r2.append(path)
-    with open('r2.json', 'w') as file:
-        json.dump(r2, file)
-    with open('selected_r2.json', 'w') as file:
-        json.dump(selected_r2, file)
-    return redirect('/adm_round2')
-
-@app.route('/select_r3/static/round3/<value>')
-def select_r3(value):
-    print(value)
-    path = './static/round3/' + value
-    if path in r3:
-        r3.remove(path)
-        selected_r3.append(path)
-    with open('r3.json', 'w') as file:
-        json.dump(r3, file)
-    with open('selected_r3.json', 'w') as file:
-        json.dump(selected_r3, file)
-    return redirect('/adm_round3')
-
-@app.route('/unselect_r3/static/round3/<value>')
-def unselect_r3(value):
-    print(value)
-    path = './static/round3/' + value
-    if path in selected_r3:
-        selected_r3.remove(path)
-        r3.append(path)
-    with open('r3.json', 'w') as file:
-        json.dump(r3, file)
-    with open('selected_r3.json', 'w') as file:
-        json.dump(selected_r3, file)
-    return redirect('/adm_round3')
-
-@app.route('/select_r4/static/round4/<value>')
-def select_r4(value):
-    print(value)
-    path = './static/round4/' + value
-    if path in r4:
-        r4.remove(path)
-        selected_r4.append(path)
-    with open('r4.json', 'w') as file:
-        json.dump(r4, file)
-    with open('selected_r4.json', 'w') as file:
-        json.dump(selected_r4, file)
-    return redirect('/adm_round4')
-
-@app.route('/unselect_r4/static/round4/<value>')
-def unselect_r4(value):
-    print(value)
-    path = './static/round4/' + value
-    if path in selected_r4:
-        selected_r4.remove(path)
-        r4.append(path)
-    with open('r4.json', 'w') as file:
-        json.dump(r4, file)
-    with open('selected_r4.json', 'w') as file:
-        json.dump(selected_r4, file)
-    return redirect('/adm_round4')
+@app.route('/unselect/<int:round_number>')
+def unselect(round_number):
+    path = request.args.get('path')
+    if not path: return redirect('/admin')
+    r: Round = roundsList[round_number]
+    if path in r.selected_filepaths:
+        r.selected_filepaths.remove(path)
+        r.save()
+    return redirect(f'/admin/round/{round_number}')
 
 @app.route('/admin_dashboard')
 def admin_dashboard():
-    if 'token' in session:
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
+    attributes = current_user_attributes()
+    if attributes:
         if attributes['uid'] in admins:
-            return render_template('admin_dashboard.html', rounds=rounds, voting=voting)
+            return render_template('admin_dashboard.html', rounds=roundsList)
         else:
             return redirect('/')
     else:
@@ -416,324 +226,50 @@ def admin_dashboard():
 
 @app.route('/toggle_state/<string:type>/<int:index>', methods=['POST'])
 def toggle_state(type, index):
-    if type == 'round' and 0 <= index < len(rounds):
-        rounds[index] = 1 - rounds[index]
-        with open('rounds.json', 'w') as file:
-            json.dump(rounds, file)
+    if type == 'round' and 0 <= index < len(roundsList):
+        r: Round = roundsList[index]
+        r.active = not r.active
+        r.save()
         return jsonify({'success': True})
-    elif type == 'vote' and 0 <= index < len(voting):
-        voting[index] = 1 - voting[index]
-        with open('voting.json', 'w') as file:
-            json.dump(voting, file)
+    elif type == 'vote' and 0 <= index < len(roundsList):
+        r: Round = roundsList[index]
+        r.voting_open = not r.voting_open
+        r.save()
         return jsonify({'success': True})
     return jsonify({'success': False}), 400
 
-@app.route('/vote1', methods=['POST', 'GET'])    
-def vote1():
+@app.route('/vote/<int:round_number>', methods=['POST', 'GET'])
+def vote(round_number):
+    attr = current_user_attributes()
+    if not attr: return redirect('/login')
+    r: Round = roundsList[round_number]
+    if not r.voting_open: return redirect('/')
     if request.method == 'POST':
         path = request.form['selectedImage']
-        if 'token' not in session:
-            return redirect('/login')
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        uid = attributes['uid']
-        if os.path.exists('voter1.json'):
-            with open('voter1.json', 'r') as file:
-                voters1 = json.load(file)
-        else:
-            voters1 = []
-        if uid not in voters1 and voting[0] == 1:
-            if os.path.exists('round1.json'):
-                with open('round1.json', 'r') as file:
-                    votes_r1 = json.load(file)
-            else:
-                votes_r1 = {}
-            if path not in votes_r1:
-                votes_r1[path] = 1
-            else:
-                votes_r1[path] += 1
-            with open('round1.json', 'w') as file:
-                json.dump(votes_r1, file)
-            voters1.append(uid)
-            with open('voter1.json', 'w') as file:
-                json.dump(voters1, file)
+        uid = attr['uid']
+        r.votes[uid] = path
+        r.save()
         return redirect('/')
-    else:
-        if 'token' not in session:
-            return redirect('/login')
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        uid = attributes['uid']
-        if os.path.exists('voter1.json'):
-            with open('voter1.json', 'r') as file:
-                voters1 = json.load(file)
-        else:
-            voters1 = []
-        if uid in voters1 or voting[0] == 0:
-            return redirect('/')
-        return render_template('vote_round1.html', selected_files=selected_r1)  
+    return render_template('vote.html', selected_files=r.selected_filepaths, round_number=r.number)  
 
-@app.route('/vote2', methods=['POST', 'GET'])    
-def vote2():
-    if request.method == 'POST':
-        path = request.form['selectedImage']
-        if 'token' not in session:
-            return redirect('/login')
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        uid = attributes['uid']
-        if os.path.exists('voter2.json'):
-            with open('voter2.json', 'r') as file:
-                voters2 = json.load(file)
-        else:
-            voters2 = []
-        if uid not in voters2 and voting[1] == 1:
-            if os.path.exists('round2.json'):
-                with open('round2.json', 'r') as file:
-                    votes_r2 = json.load(file)
-            else:
-                votes_r2 = {}
-            if path not in votes_r2:
-                votes_r2[path] = 1
-            else:
-                votes_r2[path] += 1
-            with open('round2.json', 'w') as file:
-                json.dump(votes_r2, file)
-            voters2.append(uid)
-            with open('voter2.json', 'w') as file:
-                json.dump(voters2, file)
-        return redirect('/')
-    else:
-        if 'token' not in session:
-            return redirect('/login')
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        uid = attributes['uid']
-        if os.path.exists('voter2.json'):
-            with open('voter2.json', 'r') as file:
-                voters2 = json.load(file)
-        else:
-            voters2 = []
-        if uid in voters2 or voting[1] == 0:
-            return redirect('/')
-        return render_template('vote_round2.html', selected_files=selected_r2)  
+@socketio.on('livevote')
+def handle_live_vote(data):
+    attr = current_user_attributes()
+    r: Round = roundsList[data['round_number']]
+    if not attr: return
+    r.votes[attr['uid']] = data['path']
+    r.save()
+    emit('update_livevote', data['path'], broadcast=True)
 
-@app.route('/vote3', methods=['POST', 'GET'])    
-def vote3():
-    if request.method == 'POST':
-        path = request.form['selectedImage']
-        if 'token' not in session:
-            return redirect('/login')
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        uid = attributes['uid']
-        if os.path.exists('voter3.json'):
-            with open('voter3.json', 'r') as file:
-                voters3 = json.load(file)
-        else:
-            voters3 = []
-        if uid not in voters3 and voting[2] == 1:
-            if os.path.exists('round3.json'):
-                with open('round3.json', 'r') as file:
-                    votes_r3 = json.load(file)
-            else:
-                votes_r3 = {}
-            if path not in votes_r3:
-                votes_r3[path] = 1
-            else:
-                votes_r3[path] += 1
-            with open('round3.json', 'w') as file:
-                json.dump(votes_r3, file)
-            voters3.append(uid)
-            with open('voter3.json', 'w') as file:
-                json.dump(voters3, file)
-        return redirect('/')
-    else:
-        if 'token' not in session:
-            return redirect('/login')
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        uid = attributes['uid']
-        if os.path.exists('voter3.json'):
-            with open('voter3.json', 'r') as file:
-                voters3 = json.load(file)
-        else:
-            voters3 = []
-        if uid in voters3 and voting[2] == 0:
-            return redirect('/')
-        return render_template('vote_round3.html', selected_files=selected_r3)  
-
-@app.route('/vote4', methods=['POST', 'GET'])    
-def vote4():
-    if request.method == 'POST':
-        path = request.form['selectedImage']
-        if 'token' not in session:
-            return redirect('/login')
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        uid = attributes['uid']
-        if os.path.exists('voter4.json'):
-            with open('voter4.json', 'r') as file:
-                voters4 = json.load(file)
-        else:
-            voters4 = []
-        if uid not in voters4 and voting[3] == 1:
-            if os.path.exists('round4.json'):
-                with open('round4.json', 'r') as file:
-                    votes_r4 = json.load(file)
-            else:
-                votes_r4 = {}
-            if path not in votes_r4:
-                votes_r4[path] = 1
-            else:
-                votes_r4[path] += 1
-            with open('round4.json', 'w') as file:
-                json.dump(votes_r4, file)
-            voters4.append(uid)
-            with open('voter4.json', 'w') as file:
-                json.dump(voters4, file)
-        return redirect('/')
-    else:
-        if 'token' not in session:
-            return redirect('/login')
-        token = session['token']
-        with open('key.key', 'rb') as file:
-            key = file.read()
-        fernet = Fernet(key)
-        attributes_json = fernet.decrypt(token).decode()
-        attributes = json.loads(attributes_json)
-        uid = attributes['uid']
-        if os.path.exists('voter4.json'):
-            with open('voter4.json', 'r') as file:
-                voters4 = json.load(file)
-        else:
-            voters4 = []
-        if uid in voters4 and voting[3] == 0:
-            return redirect('/')
-        return render_template('vote_round4.html', selected_files=selected_r4)  
-          
-@app.route('/result1')
-def result1():
-    if 'token' not in session:
-        return redirect('/login')
-    if os.path.exists('round1.json'):
-        with open('round1.json', 'r') as file:
-            votes_r1 = json.load(file)
-    else:
-        votes_r1 = {}
-
-    token = session['token']
-    with open('key.key', 'rb') as file:
-        key = file.read()
-    fernet = Fernet(key)
-    attributes_json = fernet.decrypt(token).decode()
-    attributes = json.loads(attributes_json)
-    uid = attributes['uid']
-
-    if uid in admins:
-        max_votes = max(votes_r1.values(), default=1) 
-        return render_template('round_result.html', votes=votes_r1, max_votes=max_votes)
-
-    return redirect('/')
-
-@app.route('/result2')
-def result2():
-    if 'token' not in session:
-        return redirect('/login')
-    if os.path.exists('round2.json'):
-        with open('round2.json', 'r') as file:
-            votes_r2 = json.load(file)
-    else:
-        votes_r2 = {}
-
-    token = session['token']
-    with open('key.key', 'rb') as file:
-        key = file.read()
-    fernet = Fernet(key)
-    attributes_json = fernet.decrypt(token).decode()
-    attributes = json.loads(attributes_json)
-    uid = attributes['uid']
-
-    if uid in admins:
-        max_votes = max(votes_r2.values(), default=1) 
-        return render_template('round_result.html', votes=votes_r2, max_votes=max_votes)
-
-    return redirect('/')
-
-@app.route('/result3')
-def result3():
-    if 'token' not in session:
-        return redirect('/login')
-    if os.path.exists('round3.json'):
-        with open('round3.json', 'r') as file:
-            votes_r3 = json.load(file)
-    else:
-        votes_r3 = {}
-
-    token = session['token']
-    with open('key.key', 'rb') as file:
-        key = file.read()
-    fernet = Fernet(key)
-    attributes_json = fernet.decrypt(token).decode()
-    attributes = json.loads(attributes_json)
-    uid = attributes['uid']
-
-    if uid in admins:
-        max_votes = max(votes_r3.values(), default=1) 
-        return render_template('round_result.html', votes=votes_r3, max_votes=max_votes)
-    
-    return redirect('/')
-
-@app.route('/result4')
-def result4():
-    if 'token' not in session:
-        return redirect('/login')
-    if os.path.exists('round4.json'):
-        with open('round4.json', 'r') as file:
-            votes_r4 = json.load(file)
-    else:
-        votes_r4 = {}
-
-    token = session['token']
-    with open('key.key', 'rb') as file:
-        key = file.read()
-    fernet = Fernet(key)
-    attributes_json = fernet.decrypt(token).decode()
-    attributes = json.loads(attributes_json)
-    uid = attributes['uid']
-
-    if uid in admins:
-        max_votes = max(votes_r4.values(), default=1) 
-        return render_template('round_result.html', votes=votes_r4, max_votes=max_votes)
-    
+@app.route('/result/<int:round_number>')
+def result(round_number):
+    r: Round = roundsList[round_number]
+    attr = current_user_attributes()
+    if not attr: return redirect('/login')
+    uid = attr['uid']
+    # if uid in admins:
+    #     max_votes = max(votes_r1.values(), default=1) 
+    #     return render_template('round_result.html', votes=votes_r1, max_votes=max_votes)
     return redirect('/')
 
 if __name__ == '__main__':
